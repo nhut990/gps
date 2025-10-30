@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chia sẻ vị trí thời gian thực</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <style>
+    body { font-family: sans-serif; text-align: center; background: #f2f2f2; }
+    #map { height: 70vh; }
+    input, button { padding: 10px; font-size: 16px; margin: 5px; }
+    button { background: #4CAF50; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    #info, #guide { padding: 10px; }
+    #guide {
+      display: none;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      margin: 10px auto;
+      text-align: left;
+      max-width: 600px;
+    }
+    #guide h3 { margin-top: 0; }
+    #guide ul { padding-left: 20px; }
+    /* Nút vị trí của tôi */
+    #locateMeBtn {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      z-index: 1000;
+      width: 46px;
+      height: 46px;
+      background: #fff;
+      border: 2px solid #2196F3;
+      border-radius: 50%;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #locateMeBtn:hover {
+      background: #e3f2fd;
+    }
+    #locateMeBtn svg {
+      width: 28px;
+      height: 28px;
+      fill: #2196F3;
+    }
+    .leaflet-control-container { position: relative; }
+  </style>
+</head>
+<body>
+
+  <h2>📍 Chia sẻ & xem vị trí thời gian thực</h2>
+  <input id="username" placeholder="Tên người dùng">
+  <button onclick="startShare()">Tôi muốn chia sẻ vị trí</button>
+  <button onclick="startView()">Tôi muốn xem vị trí người khác</button>
+  <button onclick="toggleGuide()">📘 Hướng dẫn sử dụng</button>
+
+  <div id="guide">
+    <h3>📘 Cách sử dụng</h3>
+    <p><strong>A chia sẻ vị trí cho B:</strong></p>
+    <ul>
+      <li>A nhập một tên bất kỳ (ví dụ: <em>abc</em>) và nhấn “Tôi muốn chia sẻ vị trí”.</li>
+      <li>B ở thiết bị khác nhập đúng tên đó (<em>abc</em>) và nhấn “Tôi muốn xem vị trí người khác”.</li>
+      <li>B sẽ thấy vị trí của A thay đổi theo thời gian thực.</li>
+    </ul>
+    <p><strong>Lưu ý:</strong></p>
+    <ul>
+      <li>A cần cấp quyền truy cập vị trí chính xác cho trình duyệt.</li>
+      <li>A phải giữ trang web luôn mở. Nếu tắt màn hình hoặc chuyển tab, việc chia sẻ sẽ tạm dừng.</li>
+      <li>Bất cứ lúc nào, có thể bấm nút tròn góc dưới bản đồ để xem vị trí của chính mình.</li>
+    </ul>
+    <button onclick="closeGuide()">Đóng hướng dẫn</button>
+  </div>
+
+  <div id="info">Nhập tên và chọn chế độ</div>
+  <div style="position:relative;">
+    <div id="map"></div>
+    <button id="locateMeBtn" title="Xem vị trí của tôi" onclick="showMyLocation()">
+      <!-- SVG icon vị trí -->
+      <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8" stroke="none"/>
+        <circle cx="12" cy="12" r="2" fill="#fff"/>
+      </svg>
+    </button>
+  </div>
+
+  <script>
+    // Firebase cấu hình
+    const firebaseConfig = {
+      apiKey: "AIzaSyDbAhdrKAiv_0VFj8nS2b9-aM6nwbtZXaA",
+      authDomain: "mapgps-6fa8a.firebaseapp.com",
+      databaseURL: "https://mapgps-6fa8a-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "mapgps-6fa8a",
+      storageBucket: "mapgps-6fa8a.appspot.com",
+      messagingSenderId: "237570405681",
+      appId: "1:237570405681:web:583749449110d7e1896c10",
+      measurementId: "G-9S5MMD1DJE"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // Icon marker màu xanh cho chính mình
+    const blueIcon = new L.Icon({
+      iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41],
+      popupAnchor: [1, -34],
+      shadowSize: [41, 41]
+    });
+
+    // Icon marker màu đỏ cho đối phương
+    const redIcon = new L.Icon({
+      iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41],
+      popupAnchor: [1, -34],
+      shadowSize: [41, 41]
+    });
+
+    let map, marker, myLocationMarker;
+    let baseLayers;
+
+    function initMap() {
+      // Lớp bản đồ đường phố (OpenStreetMap)
+      const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+      });
+
+      // Lớp bản đồ vệ tinh (Esri World Imagery)
+      const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
+      });
+
+      baseLayers = {
+        "Đường phố": streetLayer,
+        "Vệ tinh": satelliteLayer
+      };
+
+      // Việt Nam bounds (tọa độ góc Tây Bắc và Đông Nam)
+      const vietnamBounds = L.latLngBounds([8.3, 102.0], [23.4, 110.0]);
+
+      map = L.map('map', {
+        layers: [streetLayer]
+      });
+
+      // Fit map to Vietnam
+      map.fitBounds(vietnamBounds);
+
+      // Thêm control chuyển đổi lớp bản đồ
+      L.control.layers(baseLayers).addTo(map);
+
+      marker = null;
+      myLocationMarker = null;
+    }
+
+    // Hiển thị vị trí hiện tại của chính mình (không chia sẻ, không lưu lên DB)
+    function showMyLocation() {
+      if (!map) initMap();
+      if (!navigator.geolocation) {
+        alert("Thiết bị không hỗ trợ GPS");
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(pos => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (!myLocationMarker) {
+          myLocationMarker = L.marker([lat, lng], {icon: blueIcon}).addTo(map);
+        }
+        myLocationMarker.setLatLng([lat, lng]).setIcon(blueIcon).bindPopup("<b>Tôi</b>").openPopup();
+        map.setView([lat, lng], 16);
+        document.getElementById("info").innerText = `Vị trí của tôi: ${lat.toFixed(5)}, ${lng.toFixed(5)} lúc ${new Date().toLocaleTimeString()}`;
+      }, err => {
+        alert("Không lấy được vị trí: " + err.message);
+      }, { enableHighAccuracy: true, timeout: 10000 });
+    }
+
+    function startShare() {
+      if (!map) initMap();
+      const username = document.getElementById("username").value.trim();
+      if (!username) return alert("Nhập tên người dùng");
+
+      document.getElementById("info").innerText = "Đang chia sẻ liên tục...";
+      if (!navigator.geolocation) return alert("Thiết bị không hỗ trợ GPS");
+
+      // Nếu chưa có marker, tạo marker mới với icon màu xanh
+      if (!marker) {
+        marker = L.marker([0, 0], {icon: blueIcon}).addTo(map);
+      }
+
+      navigator.geolocation.watchPosition(
+        pos => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const timestamp = Date.now();
+
+          marker.setLatLng([lat, lng]).setIcon(blueIcon).bindPopup("<b>Tôi</b>").openPopup();
+          map.setView([lat, lng], 16);
+
+          db.ref("locations/" + username).set({ lat, lng, timestamp });
+
+          document.getElementById("info").innerText =
+            `✅ Đang chia sẻ vị trí: ${lat.toFixed(5)}, ${lng.toFixed(5)} lúc ${new Date(timestamp).toLocaleTimeString()}`;
+        },
+        err => {
+          console.error("Lỗi GPS:", err);
+          alert("Không lấy được vị trí: " + err.message);
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      );
+    }
+
+    function startView() {
+      if (!map) initMap();
+      const username = document.getElementById("username").value.trim();
+      if (!username) return alert("Nhập tên người dùng");
+
+      document.getElementById("info").innerText = "Đang xem vị trí của " + username;
+
+      let viewerLat = null, viewerLng = null;
+
+      function renderInfo(data) {
+        const latlng = [data.lat, data.lng];
+
+        // Marker màu đỏ cho vị trí người chia sẻ
+        if (!marker) {
+          marker = L.marker(latlng, {icon: redIcon}).addTo(map);
+        }
+        marker.setLatLng(latlng).setIcon(redIcon).bindPopup("<b>" + username + "</b>").openPopup();
+        map.setView(latlng, 16);
+
+        let infoHtml = 
+          `📍 Lat: ${data.lat.toFixed(5)}, Lng: ${data.lng.toFixed(5)}<br>
+           ⏱ ${new Date(data.timestamp).toLocaleTimeString()}<br>
+           <a href="https://www.google.com/maps/dir/?api=1&destination=${data.lat},${data.lng}" target="_blank">🗺 Chỉ đường đến đây</a>`;
+
+        if (viewerLat !== null && viewerLng !== null) {
+          const distanceKm = getDistanceKm(viewerLat, viewerLng, data.lat, data.lng).toFixed(2);
+          infoHtml =
+            `📍 Lat: ${data.lat.toFixed(5)}, Lng: ${data.lng.toFixed(5)}<br>
+             ⏱ ${new Date(data.timestamp).toLocaleTimeString()}<br>
+             🧭 Cách bạn khoảng: <strong>${distanceKm} km</strong><br>
+             <a href="https://www.google.com/maps/dir/?api=1&destination=${data.lat},${data.lng}" target="_blank">🗺 Chỉ đường đến đây</a>`;
+        }
+        document.getElementById("info").innerHTML = infoHtml;
+      }
+
+      navigator.geolocation.getCurrentPosition(viewerPos => {
+        viewerLat = viewerPos.coords.latitude;
+        viewerLng = viewerPos.coords.longitude;
+
+        // Marker màu xanh cho vị trí của mình (chỉ 1 marker duy nhất)
+        if (!myLocationMarker) {
+          myLocationMarker = L.marker([viewerLat, viewerLng], { icon: blueIcon }).addTo(map);
+        }
+        myLocationMarker.setLatLng([viewerLat, viewerLng]).setIcon(blueIcon).bindPopup("<b>Tôi</b>");
+
+        db.ref("locations/" + username).on("value", snap => {
+          const data = snap.val();
+          if (data) {
+            renderInfo(data);
+          } else {
+            document.getElementById("info").innerText = "Không có dữ liệu vị trí cho người dùng này.";
+          }
+        });
+      }, err => {
+        // Nếu không lấy được vị trí người xem, vẫn cho phép xem vị trí người chia sẻ
+        db.ref("locations/" + username).on("value", snap => {
+          const data = snap.val();
+          if (data) {
+            renderInfo(data);
+          } else {
+            document.getElementById("info").innerText = "Không có dữ liệu vị trí cho người dùng này.";
+          }
+        });
+      }, { enableHighAccuracy: true, timeout: 10000 });
+    }
+
+    function getDistanceKm(lat1, lng1, lat2, lng2) {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng/2) * Math.sin(dLng/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    }
+
+    function toggleGuide() {
+      const guide = document.getElementById("guide");
+      guide.style.display = guide.style.display === "block" ? "none" : "block";
+    }
+
+    function closeGuide() {
+      document.getElementById("guide").style.display = "none";
+    }
+
+    window.onload = initMap;
+  </script>
+</body>
+</html>
