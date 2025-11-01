@@ -67,9 +67,13 @@
 
   <h2>📍 Chia sẻ & xem vị trí thời gian thực</h2>
   <input id="username" placeholder="Tên người dùng">
+  <span style="color:#e53935; font-size:13px; display:block; margin-bottom:8px;">
+    Lưu ý: Tên người dùng phân biệt chữ hoa và chữ thường (VD: <b>abc</b> khác <b>ABC</b>).
+  </span>
   <button onclick="startShare()">Tôi muốn chia sẻ vị trí</button>
   <button onclick="startView()">Tôi muốn xem vị trí người khác</button>
   <button onclick="toggleGuide()">📘 Hướng dẫn sử dụng</button>
+  <button id="stopShareBtn" onclick="stopShare()" style="display:none;">Dừng chia sẻ</button>
 
   <div id="guide">
     <span class="notice">
@@ -81,12 +85,15 @@
     <ul>
       <li>A nhập một tên bất kỳ (ví dụ: <em>abc</em>) và nhấn “Tôi muốn chia sẻ vị trí”.</li>
       <li>B ở thiết bị khác nhập đúng tên đó (<em>abc</em>) và nhấn “Tôi muốn xem vị trí người khác”.</li>
-      <li>B sẽ thấy vị trí của A thay đổi theo thời gian thực.</li>
+      <li>B sẽ thấy vị trí của A thay đổi theo thời gian thực và cả đường đi của A trên bản đồ.</li>
     </ul>
     <p><strong>Lưu ý:</strong></p>
     <ul>
+      <li>Tên người dùng phân biệt chữ hoa/thường.</li>
       <li>A cần cấp quyền truy cập vị trí chính xác cho trình duyệt.</li>
-      <li>A phải giữ trang web luôn mở. Nếu tắt màn hình hoặc chuyển tab, việc chia sẻ sẽ tạm dừng.</li>
+      <li>
+        A phải giữ trang web luôn mở. Nếu tắt màn hình hoặc chuyển tab, việc chia sẻ sẽ tạm dừng, (người xem vẫn xem được vị trí cuối cùng.)
+      </li>
       <li>Bất cứ lúc nào, có thể bấm nút tròn góc dưới bản đồ để xem vị trí của chính mình.</li>
     </ul>
     <button onclick="closeGuide()">Đóng hướng dẫn</button>
@@ -141,6 +148,8 @@
 
     let map, marker, myLocationMarker;
     let baseLayers;
+    let geoWatchId = null;
+    let trackPolyline = null;
 
     function initMap() {
       // Lớp bản đồ đường phố (OpenStreetMap)
@@ -175,6 +184,7 @@
 
       marker = null;
       myLocationMarker = null;
+      trackPolyline = null;
     }
 
     // Hiển thị vị trí hiện tại của chính mình (không chia sẻ, không lưu lên DB)
@@ -206,12 +216,24 @@
       document.getElementById("info").innerText = "Đang chia sẻ liên tục...";
       if (!navigator.geolocation) return alert("Thiết bị không hỗ trợ GPS");
 
-      // Nếu chưa có marker, tạo marker mới với icon màu xanh
-      if (!marker) {
-        marker = L.marker([0, 0], {icon: blueIcon}).addTo(map);
+      // Nếu đã có marker cũ, xóa trước khi tạo mới
+      if (marker) {
+        map.removeLayer(marker);
+        marker = null;
+      }
+      if (trackPolyline) {
+        map.removeLayer(trackPolyline);
+        trackPolyline = null;
+      }
+      marker = L.marker([0, 0], {icon: blueIcon}).addTo(map);
+
+      // Dừng watcher cũ nếu có
+      if (geoWatchId !== null) {
+        navigator.geolocation.clearWatch(geoWatchId);
+        geoWatchId = null;
       }
 
-      navigator.geolocation.watchPosition(
+      geoWatchId = navigator.geolocation.watchPosition(
         pos => {
           const lat = pos.coords.latitude;
           const lng = pos.coords.longitude;
@@ -220,7 +242,10 @@
           marker.setLatLng([lat, lng]).setIcon(blueIcon).bindPopup("<b>Tôi</b>").openPopup();
           map.setView([lat, lng], 16);
 
-          db.ref("locations/" + username).set({ lat, lng, timestamp });
+          // Lưu vào lịch sử đường đi
+          db.ref("locations/" + username + "/history").push({ lat, lng, timestamp });
+          // Lưu điểm cuối cùng (marker)
+          db.ref("locations/" + username + "/last").set({ lat, lng, timestamp });
 
           document.getElementById("info").innerText =
             `✅ Đang chia sẻ vị trí: ${lat.toFixed(5)}, ${lng.toFixed(5)} lúc ${new Date(timestamp).toLocaleTimeString()}`;
@@ -231,6 +256,25 @@
         },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
       );
+
+      document.getElementById("stopShareBtn").style.display = "inline-block";
+    }
+
+    function stopShare() {
+      if (geoWatchId !== null) {
+        navigator.geolocation.clearWatch(geoWatchId);
+        geoWatchId = null;
+        document.getElementById("info").innerText = "Đã dừng chia sẻ vị trí.";
+        document.getElementById("stopShareBtn").style.display = "none";
+        if (marker) {
+          map.removeLayer(marker);
+          marker = null;
+        }
+        if (trackPolyline) {
+          map.removeLayer(trackPolyline);
+          trackPolyline = null;
+        }
+      }
     }
 
     function startView() {
@@ -246,9 +290,11 @@
         const latlng = [data.lat, data.lng];
 
         // Marker màu đỏ cho vị trí người chia sẻ
-        if (!marker) {
-          marker = L.marker(latlng, {icon: redIcon}).addTo(map);
+        if (marker) {
+          map.removeLayer(marker);
+          marker = null;
         }
+        marker = L.marker(latlng, {icon: redIcon}).addTo(map);
         marker.setLatLng(latlng).setIcon(redIcon).bindPopup("<b>" + username + "</b>").openPopup();
         map.setView(latlng, 16);
 
@@ -268,17 +314,37 @@
         document.getElementById("info").innerHTML = infoHtml;
       }
 
+      // Xóa polyline cũ nếu có
+      if (trackPolyline) {
+        map.removeLayer(trackPolyline);
+        trackPolyline = null;
+      }
+
       navigator.geolocation.getCurrentPosition(viewerPos => {
         viewerLat = viewerPos.coords.latitude;
         viewerLng = viewerPos.coords.longitude;
 
-        // Marker màu xanh cho vị trí của mình (chỉ 1 marker duy nhất)
         if (!myLocationMarker) {
           myLocationMarker = L.marker([viewerLat, viewerLng], { icon: blueIcon }).addTo(map);
         }
         myLocationMarker.setLatLng([viewerLat, viewerLng]).setIcon(blueIcon).bindPopup("<b>Tôi</b>");
 
-        db.ref("locations/" + username).on("value", snap => {
+        // Vẽ đường đi từ lịch sử
+        db.ref("locations/" + username + "/history").on("value", snap => {
+          const data = snap.val();
+          if (data) {
+            const points = Object.values(data).map(p => [p.lat, p.lng]);
+            if (trackPolyline) {
+              map.removeLayer(trackPolyline);
+            }
+            if (points.length > 1) {
+              trackPolyline = L.polyline(points, {color: 'red', weight: 4, opacity: 0.6}).addTo(map);
+              map.fitBounds(trackPolyline.getBounds());
+            }
+          }
+        });
+        // Lấy điểm cuối cùng vẽ marker
+        db.ref("locations/" + username + "/last").on("value", snap => {
           const data = snap.val();
           if (data) {
             renderInfo(data);
@@ -287,8 +353,21 @@
           }
         });
       }, err => {
-        // Nếu không lấy được vị trí người xem, vẫn cho phép xem vị trí người chia sẻ
-        db.ref("locations/" + username).on("value", snap => {
+        // Nếu không lấy được vị trí người xem, vẫn cho phép xem track và marker đối phương
+        db.ref("locations/" + username + "/history").on("value", snap => {
+          const data = snap.val();
+          if (data) {
+            const points = Object.values(data).map(p => [p.lat, p.lng]);
+            if (trackPolyline) {
+              map.removeLayer(trackPolyline);
+            }
+            if (points.length > 1) {
+              trackPolyline = L.polyline(points, {color: 'red', weight: 4, opacity: 0.6}).addTo(map);
+              map.fitBounds(trackPolyline.getBounds());
+            }
+          }
+        });
+        db.ref("locations/" + username + "/last").on("value", snap => {
           const data = snap.val();
           if (data) {
             renderInfo(data);
