@@ -35,6 +35,17 @@
       font-weight: bold;
       margin-bottom: 8px;
     }
+    .error-highlight {
+      color: #fff;
+      background: #e53935;
+      font-weight: bold;
+      font-size: 18px;
+      display: inline-block;
+      padding: 8px 16px;
+      border-radius: 8px;
+      margin: 12px 0;
+      box-shadow: 0 2px 8px rgba(229,57,53,0.2);
+    }
     /* Nút vị trí của tôi */
     #locateMeBtn {
       position: absolute;
@@ -349,7 +360,8 @@
           if (data) {
             renderInfo(data);
           } else {
-            document.getElementById("info").innerText = "Không có dữ liệu vị trí cho người dùng này.";
+            document.getElementById("info").innerHTML = 
+              `<span class="error-highlight">Không có dữ liệu vị trí cho người dùng này.</span>`;
           }
         });
       }, err => {
@@ -372,7 +384,8 @@
           if (data) {
             renderInfo(data);
           } else {
-            document.getElementById("info").innerText = "Không có dữ liệu vị trí cho người dùng này.";
+            document.getElementById("info").innerHTML = 
+              `<span class="error-highlight">Không có dữ liệu vị trí cho người dùng này.</span>`;
           }
         });
       }, { enableHighAccuracy: true, timeout: 10000 });
