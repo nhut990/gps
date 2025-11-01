@@ -202,7 +202,9 @@
     function showMyLocation() {
       if (!map) initMap();
       if (!navigator.geolocation) {
-        alert("Thiết bị không hỗ trợ GPS");
+        document.getElementById("info").innerHTML = `
+          <span class="error-highlight">Thiết bị không hỗ trợ GPS</span>
+        `;
         return;
       }
       navigator.geolocation.getCurrentPosition(pos => {
@@ -215,7 +217,18 @@
         map.setView([lat, lng], 16);
         document.getElementById("info").innerText = `Vị trí của tôi: ${lat.toFixed(5)}, ${lng.toFixed(5)} lúc ${new Date().toLocaleTimeString()}`;
       }, err => {
-        alert("Không lấy được vị trí: " + err.message);
+        if (err.code === 1) {
+          document.getElementById("info").innerHTML = `
+            <span class="error-highlight">
+              ❌ Bạn chưa cấp quyền truy cập vị trí cho trình duyệt.<br>
+              Vui lòng kiểm tra lại cài đặt và cấp quyền vị trí cho trang web!
+            </span>
+          `;
+        } else {
+          document.getElementById("info").innerHTML = `
+            <span class="error-highlight">Không lấy được vị trí: ${err.message}</span>
+          `;
+        }
       }, { enableHighAccuracy: true, timeout: 10000 });
     }
 
@@ -225,7 +238,12 @@
       if (!username) return alert("Nhập tên người dùng");
 
       document.getElementById("info").innerText = "Đang chia sẻ liên tục...";
-      if (!navigator.geolocation) return alert("Thiết bị không hỗ trợ GPS");
+      if (!navigator.geolocation) {
+        document.getElementById("info").innerHTML = `
+          <span class="error-highlight">Thiết bị không hỗ trợ GPS</span>
+        `;
+        return;
+      }
 
       // Nếu đã có marker cũ, xóa trước khi tạo mới
       if (marker) {
@@ -262,8 +280,18 @@
             `✅ Đang chia sẻ vị trí: ${lat.toFixed(5)}, ${lng.toFixed(5)} lúc ${new Date(timestamp).toLocaleTimeString()}`;
         },
         err => {
-          console.error("Lỗi GPS:", err);
-          alert("Không lấy được vị trí: " + err.message);
+          if (err.code === 1) {
+            document.getElementById("info").innerHTML = `
+              <span class="error-highlight">
+                ❌ Bạn chưa cấp quyền truy cập vị trí cho trình duyệt.<br>
+                Vui lòng kiểm tra lại cài đặt và cấp quyền vị trí cho trang web!
+              </span>
+            `;
+          } else {
+            document.getElementById("info").innerHTML = `
+              <span class="error-highlight">Không lấy được vị trí: ${err.message}</span>
+            `;
+          }
         },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
       );
