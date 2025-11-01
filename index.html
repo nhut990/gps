@@ -88,6 +88,24 @@
       box-shadow: 0 2px 8px rgba(229,57,53,0.2);
       font-weight: bold;
     }
+    /* Hiện thông báo đã tìm thấy người dùng */
+    #foundUserMsg {
+      display: none;
+      position: fixed;
+      left: 50%;
+      top: 16px;
+      transform: translateX(-50%);
+      background: #2196F3;
+      color: #fff;
+      font-size: 18px;
+      padding: 12px 24px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(33,150,243,0.18);
+      font-weight: bold;
+      opacity: 1;
+      z-index: 2000;
+      transition: opacity 1.2s;
+    }
   </style>
 </head>
 <body>
@@ -126,6 +144,7 @@
     <button onclick="closeGuide()">Đóng hướng dẫn</button>
   </div>
 
+  <div id="foundUserMsg"></div>
   <div id="info">Nhập tên và chọn chế độ</div>
   <div style="position:relative;">
     <div id="map"></div>
@@ -179,13 +198,10 @@
     let trackPolyline = null;
 
     function initMap() {
-      // Lớp bản đồ đường phố (OpenStreetMap)
       const streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap'
       });
-
-      // Lớp bản đồ vệ tinh (Esri World Imagery)
       const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
         maxZoom: 19,
         attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
@@ -196,17 +212,10 @@
         "Vệ tinh": satelliteLayer
       };
 
-      // Việt Nam bounds (tọa độ góc Tây Bắc và Đông Nam)
       const vietnamBounds = L.latLngBounds([8.3, 102.0], [23.4, 110.0]);
-
-      map = L.map('map', {
-        layers: [streetLayer]
-      });
-
-      // Fit map to Vietnam
+      map = L.map('map', { layers: [streetLayer] });
       map.fitBounds(vietnamBounds);
 
-      // Thêm control chuyển đổi lớp bản đồ
       L.control.layers(baseLayers).addTo(map);
 
       marker = null;
@@ -214,13 +223,10 @@
       trackPolyline = null;
     }
 
-    // Hiển thị vị trí hiện tại của chính mình (không chia sẻ, không lưu lên DB)
     function showMyLocation() {
       if (!map) initMap();
       if (!navigator.geolocation) {
-        document.getElementById("info").innerHTML = `
-          <span class="gps-error">Thiết bị không hỗ trợ GPS</span>
-        `;
+        document.getElementById("info").innerHTML = `<span class="gps-error">Thiết bị không hỗ trợ GPS</span>`;
         return;
       }
       navigator.geolocation.getCurrentPosition(pos => {
@@ -234,49 +240,28 @@
         document.getElementById("info").innerText = `Vị trí của tôi: ${lat.toFixed(5)}, ${lng.toFixed(5)} lúc ${new Date().toLocaleTimeString()}`;
       }, err => {
         if (err.code === 1) {
-          document.getElementById("info").innerHTML = `
-            <span class="gps-error">
-              ❌ Bạn chưa cấp quyền truy cập vị trí cho trình duyệt.<br>
-              Vui lòng kiểm tra lại cài đặt và cấp quyền vị trí cho trang web!
-            </span>
-          `;
+          document.getElementById("info").innerHTML = `<span class="gps-error">❌ Bạn chưa cấp quyền truy cập vị trí cho trình duyệt.<br>Vui lòng kiểm tra lại cài đặt và cấp quyền vị trí cho trang web!</span>`;
         } else {
-          document.getElementById("info").innerHTML = `
-            <span class="gps-error">Không lấy được vị trí: ${err.message}</span>
-          `;
+          document.getElementById("info").innerHTML = `<span class="gps-error">Không lấy được vị trí: ${err.message}</span>`;
         }
       }, { enableHighAccuracy: true, timeout: 10000 });
     }
 
-    // Chia sẻ vị trí liên tục, mỗi lần chia sẻ sẽ ghi đè dữ liệu cũ
     function startShare() {
       if (!map) initMap();
       const username = document.getElementById("username").value.trim();
       if (!username) return alert("Nhập tên người dùng");
-
       document.getElementById("info").innerText = "Đang chia sẻ liên tục...";
       if (!navigator.geolocation) {
-        document.getElementById("info").innerHTML = `
-          <span class="gps-error">Thiết bị không hỗ trợ GPS</span>
-        `;
+        document.getElementById("info").innerHTML = `<span class="gps-error">Thiết bị không hỗ trợ GPS</span>`;
         return;
       }
 
-      // Xoá dữ liệu cũ của username trên Firebase trước khi chia sẻ mới
       db.ref("locations/" + username).remove();
-
-      // Nếu đã có marker/polyline cũ, xóa trước khi tạo mới
-      if (marker) {
-        map.removeLayer(marker);
-        marker = null;
-      }
-      if (trackPolyline) {
-        map.removeLayer(trackPolyline);
-        trackPolyline = null;
-      }
+      if (marker) { map.removeLayer(marker); marker = null; }
+      if (trackPolyline) { map.removeLayer(trackPolyline); trackPolyline = null; }
       marker = L.marker([0, 0], {icon: blueIcon}).addTo(map);
 
-      // Dừng watcher cũ nếu có
       if (geoWatchId !== null) {
         navigator.geolocation.clearWatch(geoWatchId);
         geoWatchId = null;
@@ -287,42 +272,27 @@
           const lat = pos.coords.latitude;
           const lng = pos.coords.longitude;
           const timestamp = Date.now();
-
           marker.setLatLng([lat, lng]).setIcon(blueIcon).bindPopup("<b>Tôi</b>").openPopup();
           map.setView([lat, lng], 16);
-
-          // Lưu vào lịch sử đường đi
           db.ref("locations/" + username + "/history").push({ lat, lng, timestamp });
-          // Lưu điểm cuối cùng (marker)
           db.ref("locations/" + username + "/last").set({ lat, lng, timestamp });
-
-          document.getElementById("info").innerText =
-            `✅ Đang chia sẻ vị trí: ${lat.toFixed(5)}, ${lng.toFixed(5)} lúc ${new Date(timestamp).toLocaleTimeString()}`;
+          document.getElementById("info").innerText = `✅ Đang chia sẻ vị trí: ${lat.toFixed(5)}, ${lng.toFixed(5)} lúc ${new Date(timestamp).toLocaleTimeString()}`;
         },
         err => {
           if (err.code === 1) {
-            document.getElementById("info").innerHTML = `
-              <span class="gps-error">
-                ❌ Bạn chưa cấp quyền truy cập vị trí cho trình duyệt.<br>
-                Vui lòng kiểm tra lại cài đặt và cấp quyền vị trí cho trang web!
-              </span>
-            `;
+            document.getElementById("info").innerHTML = `<span class="gps-error">❌ Bạn chưa cấp quyền truy cập vị trí cho trình duyệt.<br>Vui lòng kiểm tra lại cài đặt và cấp quyền vị trí cho trang web!</span>`;
           } else {
-            document.getElementById("info").innerHTML = `
-              <span class="gps-error">Không lấy được vị trí: ${err.message}</span>
-            `;
+            document.getElementById("info").innerHTML = `<span class="gps-error">Không lấy được vị trí: ${err.message}</span>`;
           }
         },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
       );
 
-      // Làm nút dừng chia sẻ nổi bật khi đang chia sẻ
       var stopBtn = document.getElementById("stopShareBtn");
       stopBtn.style.display = "inline-block";
       stopBtn.classList.add("sharing");
     }
 
-    // Khi dừng chia sẻ, xoá toàn bộ dữ liệu vị trí trên Firebase
     function stopShare() {
       if (geoWatchId !== null) {
         navigator.geolocation.clearWatch(geoWatchId);
@@ -331,16 +301,8 @@
         var stopBtn = document.getElementById("stopShareBtn");
         stopBtn.style.display = "none";
         stopBtn.classList.remove("sharing");
-        if (marker) {
-          map.removeLayer(marker);
-          marker = null;
-        }
-        if (trackPolyline) {
-          map.removeLayer(trackPolyline);
-          trackPolyline = null;
-        }
-
-        // Xoá dữ liệu vị trí trên Firebase
+        if (marker) { map.removeLayer(marker); marker = null; }
+        if (trackPolyline) { map.removeLayer(trackPolyline); trackPolyline = null; }
         const username = document.getElementById("username").value.trim();
         if (username) {
           db.ref("locations/" + username).remove();
@@ -348,7 +310,20 @@
       }
     }
 
-    // Xem vị trí người khác, nếu nhập sai tên thì báo lỗi nhỏ màu đỏ
+    // Hiện thông báo đã tìm thấy người dùng, chỉ 3 giây rồi mờ dần và mất đi
+    function showFoundUserMsg(username) {
+      var el = document.getElementById("foundUserMsg");
+      el.style.opacity = "1";
+      el.innerHTML = `Đã tìm thấy <b>${username}</b>`;
+      el.style.display = "block";
+      setTimeout(function() {
+        el.style.opacity = "0";
+        setTimeout(function() {
+          el.style.display = "none";
+        }, 1200);
+      }, 3000);
+    }
+
     function startView() {
       if (!map) initMap();
       const username = document.getElementById("username").value.trim();
@@ -357,15 +332,12 @@
       document.getElementById("info").innerText = "Đang xem vị trí của " + username;
 
       let viewerLat = null, viewerLng = null;
+      let foundUserShown = false;
 
       function renderInfo(data) {
         const latlng = [data.lat, data.lng];
-
         // Marker màu đỏ cho vị trí người chia sẻ
-        if (marker) {
-          map.removeLayer(marker);
-          marker = null;
-        }
+        if (marker) { map.removeLayer(marker); marker = null; }
         marker = L.marker(latlng, {icon: redIcon}).addTo(map);
         marker.setLatLng(latlng).setIcon(redIcon).bindPopup("<b>" + username + "</b>").openPopup();
         map.setView(latlng, 16);
@@ -384,13 +356,15 @@
              <a href="https://www.google.com/maps/dir/?api=1&destination=${data.lat},${data.lng}" target="_blank">🗺 Chỉ đường đến đây</a>`;
         }
         document.getElementById("info").innerHTML = infoHtml;
+
+        // Hiện thông báo đã tìm thấy người dùng (chỉ hiện 1 lần khi có dữ liệu lần đầu)
+        if (!foundUserShown) {
+          showFoundUserMsg(username);
+          foundUserShown = true;
+        }
       }
 
-      // Xóa polyline cũ nếu có
-      if (trackPolyline) {
-        map.removeLayer(trackPolyline);
-        trackPolyline = null;
-      }
+      if (trackPolyline) { map.removeLayer(trackPolyline); trackPolyline = null; }
 
       navigator.geolocation.getCurrentPosition(viewerPos => {
         viewerLat = viewerPos.coords.latitude;
@@ -401,39 +375,32 @@
         }
         myLocationMarker.setLatLng([viewerLat, viewerLng]).setIcon(blueIcon).bindPopup("<b>Tôi</b>");
 
-        // Vẽ đường đi từ lịch sử
         db.ref("locations/" + username + "/history").on("value", snap => {
           const data = snap.val();
           if (data) {
             const points = Object.values(data).map(p => [p.lat, p.lng]);
-            if (trackPolyline) {
-              map.removeLayer(trackPolyline);
-            }
+            if (trackPolyline) { map.removeLayer(trackPolyline); }
             if (points.length > 1) {
               trackPolyline = L.polyline(points, {color: 'red', weight: 4, opacity: 0.6}).addTo(map);
               map.fitBounds(trackPolyline.getBounds());
             }
           }
         });
-        // Lấy điểm cuối cùng vẽ marker
         db.ref("locations/" + username + "/last").on("value", snap => {
           const data = snap.val();
           if (data) {
             renderInfo(data);
           } else {
-            document.getElementById("info").innerHTML = 
-              `<span class="error-highlight">Không có dữ liệu vị trí cho người dùng này.</span>`;
+            document.getElementById("info").innerHTML = `<span class="error-highlight">Không có dữ liệu vị trí cho người dùng này.</span>`;
+            foundUserShown = false;
           }
         });
       }, err => {
-        // Nếu không lấy được vị trí người xem, vẫn cho phép xem track và marker đối phương
         db.ref("locations/" + username + "/history").on("value", snap => {
           const data = snap.val();
           if (data) {
             const points = Object.values(data).map(p => [p.lat, p.lng]);
-            if (trackPolyline) {
-              map.removeLayer(trackPolyline);
-            }
+            if (trackPolyline) { map.removeLayer(trackPolyline); }
             if (points.length > 1) {
               trackPolyline = L.polyline(points, {color: 'red', weight: 4, opacity: 0.6}).addTo(map);
               map.fitBounds(trackPolyline.getBounds());
@@ -447,6 +414,7 @@
           } else {
             document.getElementById("info").innerHTML =
               `<span class="error-highlight">Không có dữ liệu vị trí cho người dùng này.</span>`;
+            foundUserShown = false;
           }
         });
       }, { enableHighAccuracy: true, timeout: 10000 });
