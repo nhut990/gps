@@ -36,6 +36,13 @@
       margin-bottom: 8px;
     }
     .error-highlight {
+      color: #e53935;
+      font-weight: bold;
+      font-size: 15px;
+      display: inline-block;
+      margin: 8px 0;
+    }
+    .gps-error {
       color: #fff;
       background: #e53935;
       font-weight: bold;
@@ -72,6 +79,15 @@
       fill: #2196F3;
     }
     .leaflet-control-container { position: relative; }
+
+    /* Nền nút dừng chia sẻ nổi bật khi đang chia sẻ */
+    #stopShareBtn.sharing {
+      background: #e53935 !important;
+      color: #fff !important;
+      border: none;
+      box-shadow: 0 2px 8px rgba(229,57,53,0.2);
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
@@ -92,7 +108,6 @@
       Không thu thập, lưu trữ hay sử dụng bất cứ thông tin cá nhân nào từ người dùng.
     </span>
     <h3>📘 Cách sử dụng</h3>
-    <p><strong>A chia sẻ vị trí cho B:</strong></p>
     <ul>
       <li>A nhập một tên bất kỳ (ví dụ: <em>abc</em>) và nhấn “Tôi muốn chia sẻ vị trí”.</li>
       <li>B ở thiết bị khác nhập đúng tên đó (<em>abc</em>) và nhấn “Tôi muốn xem vị trí người khác”.</li>
@@ -106,6 +121,7 @@
         A phải giữ trang web luôn mở. Nếu tắt màn hình hoặc chuyển tab, việc chia sẻ sẽ tạm dừng, (người xem vẫn xem được vị trí cuối cùng.)
       </li>
       <li>Bất cứ lúc nào, có thể bấm nút tròn góc dưới bản đồ để xem vị trí của chính mình.</li>
+      <li>Khi muốn dừng chia sẻ và xoá toàn bộ dữ liệu, hãy bấm nút "Dừng chia sẻ". Nếu mất mạng hoặc reload, nhập lại đúng tên rồi chia sẻ lại để tiếp tục.</li>
     </ul>
     <button onclick="closeGuide()">Đóng hướng dẫn</button>
   </div>
@@ -203,7 +219,7 @@
       if (!map) initMap();
       if (!navigator.geolocation) {
         document.getElementById("info").innerHTML = `
-          <span class="error-highlight">Thiết bị không hỗ trợ GPS</span>
+          <span class="gps-error">Thiết bị không hỗ trợ GPS</span>
         `;
         return;
       }
@@ -219,19 +235,20 @@
       }, err => {
         if (err.code === 1) {
           document.getElementById("info").innerHTML = `
-            <span class="error-highlight">
+            <span class="gps-error">
               ❌ Bạn chưa cấp quyền truy cập vị trí cho trình duyệt.<br>
               Vui lòng kiểm tra lại cài đặt và cấp quyền vị trí cho trang web!
             </span>
           `;
         } else {
           document.getElementById("info").innerHTML = `
-            <span class="error-highlight">Không lấy được vị trí: ${err.message}</span>
+            <span class="gps-error">Không lấy được vị trí: ${err.message}</span>
           `;
         }
       }, { enableHighAccuracy: true, timeout: 10000 });
     }
 
+    // Chia sẻ vị trí liên tục, mỗi lần chia sẻ sẽ ghi đè dữ liệu cũ
     function startShare() {
       if (!map) initMap();
       const username = document.getElementById("username").value.trim();
@@ -240,12 +257,15 @@
       document.getElementById("info").innerText = "Đang chia sẻ liên tục...";
       if (!navigator.geolocation) {
         document.getElementById("info").innerHTML = `
-          <span class="error-highlight">Thiết bị không hỗ trợ GPS</span>
+          <span class="gps-error">Thiết bị không hỗ trợ GPS</span>
         `;
         return;
       }
 
-      // Nếu đã có marker cũ, xóa trước khi tạo mới
+      // Xoá dữ liệu cũ của username trên Firebase trước khi chia sẻ mới
+      db.ref("locations/" + username).remove();
+
+      // Nếu đã có marker/polyline cũ, xóa trước khi tạo mới
       if (marker) {
         map.removeLayer(marker);
         marker = null;
@@ -282,29 +302,35 @@
         err => {
           if (err.code === 1) {
             document.getElementById("info").innerHTML = `
-              <span class="error-highlight">
+              <span class="gps-error">
                 ❌ Bạn chưa cấp quyền truy cập vị trí cho trình duyệt.<br>
                 Vui lòng kiểm tra lại cài đặt và cấp quyền vị trí cho trang web!
               </span>
             `;
           } else {
             document.getElementById("info").innerHTML = `
-              <span class="error-highlight">Không lấy được vị trí: ${err.message}</span>
+              <span class="gps-error">Không lấy được vị trí: ${err.message}</span>
             `;
           }
         },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
       );
 
-      document.getElementById("stopShareBtn").style.display = "inline-block";
+      // Làm nút dừng chia sẻ nổi bật khi đang chia sẻ
+      var stopBtn = document.getElementById("stopShareBtn");
+      stopBtn.style.display = "inline-block";
+      stopBtn.classList.add("sharing");
     }
 
+    // Khi dừng chia sẻ, xoá toàn bộ dữ liệu vị trí trên Firebase
     function stopShare() {
       if (geoWatchId !== null) {
         navigator.geolocation.clearWatch(geoWatchId);
         geoWatchId = null;
         document.getElementById("info").innerText = "Đã dừng chia sẻ vị trí.";
-        document.getElementById("stopShareBtn").style.display = "none";
+        var stopBtn = document.getElementById("stopShareBtn");
+        stopBtn.style.display = "none";
+        stopBtn.classList.remove("sharing");
         if (marker) {
           map.removeLayer(marker);
           marker = null;
@@ -313,9 +339,16 @@
           map.removeLayer(trackPolyline);
           trackPolyline = null;
         }
+
+        // Xoá dữ liệu vị trí trên Firebase
+        const username = document.getElementById("username").value.trim();
+        if (username) {
+          db.ref("locations/" + username).remove();
+        }
       }
     }
 
+    // Xem vị trí người khác, nếu nhập sai tên thì báo lỗi nhỏ màu đỏ
     function startView() {
       if (!map) initMap();
       const username = document.getElementById("username").value.trim();
@@ -412,7 +445,7 @@
           if (data) {
             renderInfo(data);
           } else {
-            document.getElementById("info").innerHTML = 
+            document.getElementById("info").innerHTML =
               `<span class="error-highlight">Không có dữ liệu vị trí cho người dùng này.</span>`;
           }
         });
